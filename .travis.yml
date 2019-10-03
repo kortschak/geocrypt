@@ -1,0 +1,20 @@
+language: go
+go:
+    - 1.13.x
+    - master
+
+matrix:
+    allow_failures:
+        - go: master
+
+
+install:
+    - go get -v golang.org/x/tools/cmd/cover
+
+script:
+    - go test -v -short -covermode=count -coverprofile=profile.cov
+
+after_success:
+    - go get -v github.com/mattn/goveralls
+    - export PATH=$PATH:$HOME/gopath/bin
+    - goveralls -coverprofile=profile.cov -service=travis-ci
