@@ -6,9 +6,12 @@
 package geocrypt
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
+	"sort"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -21,6 +24,10 @@ const (
 	// MaxPrecision is the maximum allowable precision
 	// that may be passed to Hash and Error.
 	MaxPrecision = 9
+
+	// DefaultPrecision corresponds to approximately one
+	// diagonal metre at the equator.
+	DefaultPrecision = 7
 )
 
 // The error returned from Compare when a location and hash do not match.
@@ -29,35 +36,82 @@ var ErrMismatchedHashAndLocation = errors.New("geocrypt: hashedLocation is not t
 // The error returned from Hash and Geohash when the precision is out of the valid range.
 var ErrInvalidPrecision = errors.New("geocrypt: location precision out of range")
 
-// Hash returns the geocrypt hash of the location at the given
-// latitude and longitude with the given precision.
-func Hash(lat, long float64, prec int) ([]byte, error) {
-	if prec < MinPrecision || MaxPrecision < prec {
-		return nil, ErrInvalidPrecision
+// Hash returns the geocrypt hash set of the location at the given
+// latitude and longitude with the given precisions. If no precision
+// is given, DefaultPrecision is used. When more than one precision
+// is given, the hashes are concatenated in order of descending precision.
+func Hash(lat, long float64, precs ...int) ([]byte, error) {
+	for i, p := range precs {
+		if p < MinPrecision || MaxPrecision < p {
+			return nil, fmt.Errorf("%w: position %d: %d", ErrInvalidPrecision, i, p)
+		}
 	}
-	bits := Bits(prec)
-	cost := 66 - bits
-	var b [8]byte
-	binary.BigEndian.PutUint64(b[:], geohash(lat, long)&(^uint64(0)<<(64-bits)))
-	return bcrypt.GenerateFromPassword(b[:], int(cost))
+	switch len(precs) {
+	case 0:
+		precs = []int{DefaultPrecision}
+	case 1:
+		// Do nothing.
+	default:
+		precs = append([]int(nil), precs...)
+		sort.Sort(sort.Reverse(sort.IntSlice(precs)))
+		i, j := 0, 1
+		for j < len(precs) {
+			if precs[i] > precs[j] {
+				i++
+				if i != j {
+					precs[i], precs[j] = precs[j], precs[i]
+				}
+			}
+			j++
+		}
+		precs = precs[:i+1]
+	}
+
+	var buf bytes.Buffer
+	for i, p := range precs {
+		if i != 0 {
+			buf.WriteByte(':')
+		}
+		bits := Bits(p)
+		cost := 66 - bits
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], geohash(lat, long)&(^uint64(0)<<(64-bits)))
+		h, err := bcrypt.GenerateFromPassword(b[:], int(cost))
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(h)
+	}
+	return buf.Bytes(), nil
 }
 
 // Compare compares the geocrypt hashed location with the location
-// at latitude and longitude. It returns nil on success or an error
-// on failure.
-func Compare(hashedLocation []byte, lat, long float64) error {
+// at latitude and longitude. It returns the highest number of geohash
+// precision bits in the hash set on success or an error on failure.
+func Compare(hashedLocation []byte, lat, long float64) (bits int, err error) {
+	for _, h := range bytes.Split(hashedLocation, []byte{':'}) {
+		bits, err = compare(h, lat, long)
+		if err == nil {
+			return bits, nil
+		}
+	}
+	return 0, ErrMismatchedHashAndLocation
+}
+
+func compare(hashedLocation []byte, lat, long float64) (bits int, err error) {
 	cost, err := bcrypt.Cost(hashedLocation)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	prec := 66 - cost
+	bits = 66 - cost
 	var b [8]byte
-	binary.BigEndian.PutUint64(b[:], geohash(lat, long)&(^uint64(0)<<(64-prec)))
+	binary.BigEndian.PutUint64(b[:], geohash(lat, long)&(^uint64(0)<<(64-bits)))
 	err = bcrypt.CompareHashAndPassword(hashedLocation, b[:])
 	if err == bcrypt.ErrMismatchedHashAndPassword {
+		bits = 0
 		err = ErrMismatchedHashAndLocation
 	}
-	return err
+	return bits, err
 }
 
 // Bits returns the geohash bit precision corresponding to the given

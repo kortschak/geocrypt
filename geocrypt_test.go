@@ -19,30 +19,30 @@ var locationTests = []struct {
 }
 
 func TestHashCompare(t *testing.T) {
-	precs := []int{9, 8, 7, 6, 5}
+	precs := [][]int{{9}, {8}, {7}, {7, 9, 8}, {6}}
 	if testing.Short() {
-		precs = precs[:3]
+		precs = precs[:4]
 	}
 	for _, test := range locationTests {
 		for _, prec := range precs {
 			s := time.Now()
-			h, err := Hash(test.lat, test.long, prec)
+			h, err := Hash(test.lat, test.long, prec...)
 			if err != nil {
 				t.Errorf("unexpected hash error: %v", err)
 			}
 			hashTime := time.Since(s)
 			s = time.Now()
-			err = Compare(h, test.lat, test.long)
+			bits, err := Compare(h, test.lat, test.long)
 			if err != nil {
 				t.Errorf("unexpected hash comparison error: %v", err)
 			}
 			compareTime := time.Since(s)
-			geohash, err := Geohash(test.lat, test.long, Bits(prec))
+			geohash, err := Geohash(test.lat, test.long, bits)
 			if err != nil {
 				t.Errorf("unexpected geohash error: %v", err)
 			}
-			latErr, longErr := Error(Bits(prec))
-			t.Logf("diag distance for %s prec %d: %.2fm hash in %v compare in %v", geohash, prec,
+			latErr, longErr := Error(bits)
+			t.Logf("diag distance for %s prec %d: %.2fm hash in %v compare in %v", geohash, Prec(bits),
 				haversine(test.lat-latErr, test.long-longErr, test.lat+latErr, test.long+longErr),
 				hashTime, compareTime,
 			)
