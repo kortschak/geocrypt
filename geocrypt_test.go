@@ -26,13 +26,13 @@ func TestHashCompare(t *testing.T) {
 	for _, test := range locationTests {
 		for _, prec := range precs {
 			s := time.Now()
-			h, err := Hash(test.lat, test.long, prec...)
+			h, err := Hash(test.lat, test.long, "", prec...)
 			if err != nil {
 				t.Errorf("unexpected hash error: %v", err)
 			}
 			hashTime := time.Since(s)
 			s = time.Now()
-			bits, err := Compare(h, test.lat, test.long)
+			bits, err := Compare(h, test.lat, test.long, "")
 			if err != nil {
 				t.Errorf("unexpected hash comparison error: %v", err)
 			}
